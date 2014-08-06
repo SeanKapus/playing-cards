@@ -1,0 +1,149 @@
+
+from django.core.exceptions import ValidationError
+from django.core.urlresolvers import reverse
+from django.http import HttpResponseRedirect
+from cards.forms import EmailUserCreationForm
+from cards.models import Card, Player, WarGame
+from cards.test_utils import run_pyflakes_for_package, run_pep8_for_package
+from cards.utils import create_deck
+
+__author__ = 'CatsAir'
+from django.test import TestCase
+
+
+# failing test case example
+class BasicMathTestCase(TestCase):
+    def test_math(self):
+        a = 1
+        b = 1
+        self.assertEqual(a+b, 2)
+
+    def test_failing_case(self):
+        a = 1
+        b = 1
+        self.assertEqual(a+b, 1)
+
+
+class UtilTestCase(TestCase):
+    def test_create_deck_count(self):
+        """Test that we created 52 cards"""
+        create_deck()
+        self.assertEqual(Card.objects.count(), 52)
+
+
+# tests for win lose or draw in get war results in models.py
+class ModelTestCase(TestCase):
+    def test_get_ranking(self):
+        """Test that we get the proper ranking for a card"""
+        card = Card.objects.create(suit=Card.CLUB, rank="jack")
+        self.assertEqual(card.get_ranking(), 11)
+
+    def test_war_result_user_win(self):
+        """test for win  scenario"""
+        user = Card.objects.create(suit=Card.HEART, rank='five')
+        comp = Card.objects.create(suit=Card.HEART, rank='four')
+        self.assertEqual(Card.get_war_result(user, comp), 1)
+
+    def test_war_result_draw(self):
+        """test for draw scenario"""
+        user = Card.objects.create(suit=Card.HEART, rank='five')
+        comp = Card.objects.create(suit=Card.HEART, rank='five')
+        self.assertEqual(Card.get_war_result(user, comp), 0)
+
+    def test_war_result_loss(self):
+        """test for user loses scenario"""
+        user = Card.objects.create(suit=Card.HEART, rank='four')
+        comp = Card.objects.create(suit=Card.HEART, rank='five')
+        self.assertEqual(Card.get_war_result(user, comp), -1)
+
+
+# testing for username is being cleaned and checked
+class FormTestCase(TestCase):
+    def test_clean_username_exception(self):
+        # Create a player so that this username we're testing is already taken
+        Player.objects.create_user(username='test-user')
+
+        # set up the form for testing
+        form = EmailUserCreationForm()
+        form.cleaned_data = {'username': 'test-user'}
+
+        # use a context manager to watch for the validation error being raised
+        with self.assertRaises(ValidationError):
+            form.clean_username()
+
+    def test_clean_username(self):
+        form = EmailUserCreationForm()
+        form.cleaned_data ={'username': 'test-user'}
+        self.assertEqual(form.clean_username(), 'test-user')
+
+
+# test for homepage is loading all cards upon load
+class ViewTestCase(TestCase):
+    def setUp(self):
+        create_deck()
+
+    def create_war_game(self, user, result=WarGame.LOSS):
+        WarGame.objects.create(result=result, player=user)
+
+    def test_home_page(self):
+        response = self.client.get(reverse('home'))
+        self.assertIn('<p>Suit: spade, Rank: two</p>', response.content)
+        self.assertEqual(response.context['cards'].count(), 52)
+
+# testing for loggin functions working correctly
+    def test_register_page(self):
+        username = 'new-user'
+        data = {
+            'username': username,
+            'email': 'test@test.com',
+            'password1': 'test',
+            'password2': 'test'
+        }
+        response = self.client.post(reverse('register'), data)
+
+        # Check this user was created in the database
+        self.assertTrue(Player.objects.filter(username=username).exists())
+
+        # Check it's a redirect to the profile page
+        self.assertIsInstance(response, HttpResponseRedirect)
+        self.assertTrue(response.get('location').endswith(reverse('profile')))
+
+    def test_profile_page(self):
+        # Create user and log them in
+        password = 'passsword'
+        user = Player.objects.create_user(username='test-user', email='test@test.com', password=password)
+        self.client.login(username=user.username, password=password)
+
+        # Set up some war game entries
+        self.create_war_game(user)
+        self.create_war_game(user, WarGame.WIN)
+
+        # Make the url call and check the html and games queryset length
+        response = self.client.get(reverse('profile'))
+        self.assertInHTML('<p>Your email address is {}</p>'.format(user.email), response.content)
+        self.assertEqual(len(response.context['games']), 2)
+
+    def test_faq_page(self):
+        response = self.client.get(reverse('faq'))
+        self.assertIn('<p>Q: Can I win real money on this website?</p>', response.content)
+
+    #
+    # def test_filters_page(self):
+    #     response = self.client.get(reverse('filter'))
+    #     self.assertIn('Uppercased Rank : ACE', response.content)
+    #     self.assertEqual(response.context['cards'].count(),52)
+
+
+class SyntaxTest(TestCase):
+    def test_syntax(self):
+        """
+        Run pyflakes/pep8 across the code base to check for potential errors.
+        """
+        packages = ['cards']
+        warnings = []
+        # Eventually should use flake8 instead so we can ignore specific lines via a comment
+        for package in packages:
+            warnings.extend(run_pyflakes_for_package(package, extra_ignore=("_settings",)))
+            warnings.extend(run_pep8_for_package(package, extra_ignore=("_settings",)))
+        if warnings:
+            self.fail("{0} Syntax warnings!\n\n{1}".format(len(warnings), "\n".join(warnings)))

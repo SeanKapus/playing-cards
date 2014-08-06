@@ -34,3 +34,4 @@ def create_deck():
 
     cards = [Card(suit=suit, rank=rank, image=get_card_image(suit, rank)) for rank in ranks for suit in suits]
     Card.objects.bulk_create(cards)
+
